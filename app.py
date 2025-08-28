@@ -116,7 +116,7 @@ contract_address = st.text_input(
 rpc_endpoint = os.getenv("RPC_ENDPOINT")
 
 # Retrieve data button
-if st.button("🔍 Retrieve Data", type="primary"):
+if st.button("🔍 Retrieve Vault Data", type="primary"):
     if not rpc_endpoint:
         st.error("Please set RPC_ENDPOINT in your .env file")
     elif not contract_address:
@@ -202,6 +202,150 @@ if st.button("🔍 Retrieve Data", type="primary"):
                                     # Store DataFrame in session state
                                     st.session_state.vault_df = vault_df
                                     
+                                    # Get vault addresses for detailed data retrieval
+                                    vault_addresses = list(vault_df.reset_index()['vault_address'])
+                                    total_vaults = len(vault_addresses)
+                                    
+                                    with st.spinner("Retrieving detailed vault data..."):
+                                        try:
+                                            # Create aggregator contract instance
+                                            aggregator_contract = w3.eth.contract(
+                                                address=Web3.to_checksum_address(VAULT_DATA_AGGREGATOR_ADDRESS),
+                                                abi=VAULT_DATA_AGGREGATOR_ABI
+                                            )
+                                            
+                                            # Create batches
+                                            batches = [vault_addresses[i:i + BATCH_SIZE] for i in range(0, len(vault_addresses), BATCH_SIZE)]
+                                            total_batches = len(batches)
+                                            
+                                            # Progress tracking (minimal UI)
+                                            progress_bar = st.progress(0)
+                                            status_text = st.empty()
+                                            
+                                            all_vault_data = []
+                                            rate_limiter = st.session_state.rate_limiter
+                                            
+                                            for i, batch in enumerate(batches):
+                                                # Check rate limiting
+                                                can_request, message = rate_limiter.can_make_request()
+                                                if not can_request:
+                                                    if "wait" in message:
+                                                        sleep_time = float(message.split("wait ")[1].split(" seconds")[0])
+                                                        time.sleep(sleep_time)
+                                                    else:
+                                                        st.error(message)
+                                                        break
+                                                
+                                                # Update progress silently
+                                                progress = (i + 1) / total_batches
+                                                progress_bar.progress(progress)
+                                                
+                                                try:
+                                                    # Make the contract call
+                                                    batch_data = aggregator_contract.functions.getVaultsData(
+                                                        Web3.to_checksum_address(contract_address),
+                                                        [Web3.to_checksum_address(addr) for addr in batch]
+                                                    ).call()
+                                                    
+                                                    # Record the request
+                                                    rate_limiter.make_request()
+                                                    
+                                                    # Process the returned data safely
+                                                    for j, vault_data in enumerate(batch_data):
+                                                        try:
+                                                            all_vault_data.append({
+                                                                'vault_address': vault_data[0],
+                                                                'owner': vault_data[1],
+                                                                'lock_until': int(vault_data[2]) if vault_data[2] is not None else 0,
+                                                                'staked_balance': int(vault_data[3]) if vault_data[3] is not None else 0,
+                                                                'mp_accrued': int(vault_data[4]) if vault_data[4] is not None else 0,
+                                                                'last_mp_update_time': int(vault_data[5]) if vault_data[5] is not None else 0,
+                                                                'rewards_accrued': int(vault_data[6]) if vault_data[6] is not None else 0,
+                                                                'success': bool(vault_data[7]) if vault_data[7] is not None else False
+                                                            })
+                                                        except (ValueError, TypeError, IndexError) as data_error:
+                                                            st.warning(f"Error processing vault {j+1} in batch {i + 1}: {str(data_error)}")
+                                                            # Add a failed entry for this vault
+                                                            all_vault_data.append({
+                                                                'vault_address': batch[j] if j < len(batch) else 'unknown',
+                                                                'owner': '0x0000000000000000000000000000000000000000',
+                                                                'lock_until': 0,
+                                                                'staked_balance': 0,
+                                                                'mp_accrued': 0,
+                                                                'last_mp_update_time': 0,
+                                                                'rewards_accrued': 0,
+                                                                'success': False
+                                                            })
+                                                    
+                                                except Exception as batch_error:
+                                                    st.warning(f"Error processing batch {i + 1}: {str(batch_error)}")
+                                                    # Add failed entries for all vaults in this batch
+                                                    for addr in batch:
+                                                        all_vault_data.append({
+                                                            'vault_address': addr,
+                                                            'owner': '0x0000000000000000000000000000000000000000',
+                                                            'lock_until': 0,
+                                                            'staked_balance': 0,
+                                                            'mp_accrued': 0,
+                                                            'last_mp_update_time': 0,
+                                                            'rewards_accrued': 0,
+                                                            'success': False
+                                                        })
+                                                    continue
+                                            
+                                            if all_vault_data:
+                                                # Create DataFrame with vault data
+                                                vault_data_df = pd.DataFrame(all_vault_data)
+                                                
+                                                # Convert data types and handle Wei values safely
+                                                vault_data_df['vault_address'] = vault_data_df['vault_address'].astype('string')
+                                                vault_data_df['owner'] = vault_data_df['owner'].astype('string')
+                                                
+                                                # Handle timestamps safely - convert to datetime
+                                                vault_data_df['lock_until'] = vault_data_df['lock_until'].apply(
+                                                    lambda x: pd.to_datetime(x, unit='s') if x > 0 else pd.NaT
+                                                )
+                                                vault_data_df['last_mp_update_time'] = vault_data_df['last_mp_update_time'].apply(
+                                                    lambda x: pd.to_datetime(x, unit='s') if x > 0 else pd.NaT
+                                                )
+                                                
+                                                # Keep Wei values as object type to handle large numbers
+                                                vault_data_df['staked_balance_wei'] = vault_data_df['staked_balance'].astype('object')
+                                                vault_data_df['mp_accrued_wei'] = vault_data_df['mp_accrued'].astype('object')
+                                                vault_data_df['rewards_accrued_wei'] = vault_data_df['rewards_accrued'].astype('object')
+                                                
+                                                # Convert to ETH using Python's native division to handle large numbers
+                                                vault_data_df['staked_balance_eth'] = vault_data_df['staked_balance'].apply(
+                                                    lambda x: float(x) / 1e18 if x is not None else 0.0
+                                                )
+                                                vault_data_df['mp_accrued_eth'] = vault_data_df['mp_accrued'].apply(
+                                                    lambda x: float(x) / 1e18 if x is not None else 0.0
+                                                )
+                                                vault_data_df['rewards_accrued_eth'] = vault_data_df['rewards_accrued'].apply(
+                                                    lambda x: float(x) / 1e18 if x is not None else 0.0
+                                                )
+                                                
+                                                # Store in session state
+                                                st.session_state.vault_data_df = vault_data_df
+                                                
+                                                # Clear progress indicators
+                                                progress_bar.empty()
+                                                status_text.empty()
+                                                
+                                                st.success(f"✅ Successfully retrieved detailed data for {len(vault_data_df)} vaults!")
+                                                
+                                            else:
+                                                # Clear progress indicators on failure
+                                                progress_bar.empty()
+                                                status_text.empty()
+                                                st.error("No vault data could be retrieved")
+                                                
+                                        except Exception as vault_data_error:
+                                            # Clear progress indicators on error
+                                            progress_bar.empty()
+                                            status_text.empty()
+                                            st.error(f"Error retrieving detailed vault data: {str(vault_data_error)}")
+                                    
                                 else:
                                     st.warning("No VaultRegistered events found")
                                     st.session_state.vault_df = pd.DataFrame()
@@ -218,210 +362,8 @@ if st.button("🔍 Retrieve Data", type="primary"):
 
 st.markdown("---")
 
-# Vault addresses section
-st.subheader("📋 Discovered Staking Vaults")
-
-# Display vault data if available
-if 'vault_df' in st.session_state and not st.session_state.vault_df.empty:
-    vault_df = st.session_state.vault_df
-    
-    # Handle backward compatibility: rename old column if it exists
-    if 'owner_address' in vault_df.columns and 'deployer_address' not in vault_df.columns:
-        vault_df = vault_df.rename(columns={'owner_address': 'deployer_address'})
-        st.session_state.vault_df = vault_df  # Update the stored version
-    
-    # Display summary with data science stats
-    st.write(f"**Total Vaults Found**: {len(vault_df)}")
-    
-    # Use the correct column name for deployers
-    deployer_col = 'deployer_address' if 'deployer_address' in vault_df.columns else 'owner_address'
-    st.write(f"**Unique Deployers**: {vault_df[deployer_col].nunique()}")
-    
-    # Display vault table (reset index to show vault_address as column)
-    display_df = vault_df.reset_index()
-    
-    # Select only the columns we want to show (hide technical columns)
-    display_columns = ['vault_address', deployer_col, 'block_number', 'transaction_hash']
-    available_columns = [col for col in display_columns if col in display_df.columns]
-    display_df = display_df[available_columns]
-    
-    # Set up column config
-    column_config = {
-        "vault_address": st.column_config.TextColumn("Vault Address", width="large"),
-        "block_number": st.column_config.NumberColumn("Block Number", width="small"),
-        "transaction_hash": st.column_config.TextColumn("Transaction Hash", width="large")
-    }
-    
-    # Add deployer column config with the correct name
-    if deployer_col in display_df.columns:
-        column_config[deployer_col] = st.column_config.TextColumn("Deployer Address", width="large")
-    
-    st.dataframe(
-        display_df,
-        column_config=column_config,
-        hide_index=True,
-        width="stretch"
-    )
-    
-    # Vault Data Retrieval Section
-    st.markdown("---")
-    st.subheader("📊 Vault Data Analysis")
-    
-    if st.button("🔍 Retrieve Vault Data", type="primary"):
-        try:
-            with st.spinner("Retrieving detailed vault data..."):
-                # Initialize Web3 connection
-                w3 = Web3(Web3.HTTPProvider(rpc_endpoint))
-                
-                if not w3.is_connected():
-                    st.error("Failed to connect to RPC endpoint")
-                else:
-                    # Create contract instances
-                    aggregator_contract = w3.eth.contract(
-                        address=Web3.to_checksum_address(VAULT_DATA_AGGREGATOR_ADDRESS),
-                        abi=VAULT_DATA_AGGREGATOR_ABI
-                    )
-                    
-                    # Get vault addresses from the dataframe
-                    vault_addresses = list(vault_df.reset_index()['vault_address'])
-                    total_vaults = len(vault_addresses)
-                    
-                    st.info(f"Processing {total_vaults} vaults in batches of {BATCH_SIZE}...")
-                    
-                    # Create batches
-                    batches = [vault_addresses[i:i + BATCH_SIZE] for i in range(0, len(vault_addresses), BATCH_SIZE)]
-                    total_batches = len(batches)
-                    
-                    # Progress tracking
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    all_vault_data = []
-                    rate_limiter = st.session_state.rate_limiter
-                    
-                    for i, batch in enumerate(batches):
-                        # Check rate limiting
-                        can_request, message = rate_limiter.can_make_request()
-                        if not can_request:
-                            if "wait" in message:
-                                sleep_time = float(message.split("wait ")[1].split(" seconds")[0])
-                                status_text.text(f"Rate limiting: waiting {sleep_time:.1f}s...")
-                                time.sleep(sleep_time)
-                            else:
-                                st.error(message)
-                                break
-                        
-                        # Update progress
-                        progress = (i + 1) / total_batches
-                        progress_bar.progress(progress)
-                        status_text.text(f"Processing batch {i + 1}/{total_batches} ({len(batch)} vaults)...")
-                        
-                        try:
-                            # Make the contract call
-                            batch_data = aggregator_contract.functions.getVaultsData(
-                                Web3.to_checksum_address(contract_address),
-                                [Web3.to_checksum_address(addr) for addr in batch]
-                            ).call()
-                            
-                            # Record the request
-                            rate_limiter.make_request()
-                            
-                            # Process the returned data safely
-                            for j, vault_data in enumerate(batch_data):
-                                try:
-                                    all_vault_data.append({
-                                        'vault_address': vault_data[0],
-                                        'owner': vault_data[1],
-                                        'lock_until': int(vault_data[2]) if vault_data[2] is not None else 0,
-                                        'staked_balance': int(vault_data[3]) if vault_data[3] is not None else 0,
-                                        'mp_accrued': int(vault_data[4]) if vault_data[4] is not None else 0,
-                                        'last_mp_update_time': int(vault_data[5]) if vault_data[5] is not None else 0,
-                                        'rewards_accrued': int(vault_data[6]) if vault_data[6] is not None else 0,
-                                        'success': bool(vault_data[7]) if vault_data[7] is not None else False
-                                    })
-                                except (ValueError, TypeError, IndexError) as data_error:
-                                    st.warning(f"Error processing vault {j+1} in batch {i + 1}: {str(data_error)}")
-                                    # Add a failed entry for this vault
-                                    all_vault_data.append({
-                                        'vault_address': batch[j] if j < len(batch) else 'unknown',
-                                        'owner': '0x0000000000000000000000000000000000000000',
-                                        'lock_until': 0,
-                                        'staked_balance': 0,
-                                        'mp_accrued': 0,
-                                        'last_mp_update_time': 0,
-                                        'rewards_accrued': 0,
-                                        'success': False
-                                    })
-                            
-                        except Exception as batch_error:
-                            st.warning(f"Error processing batch {i + 1}: {str(batch_error)}")
-                            # Add failed entries for all vaults in this batch
-                            for addr in batch:
-                                all_vault_data.append({
-                                    'vault_address': addr,
-                                    'owner': '0x0000000000000000000000000000000000000000',
-                                    'lock_until': 0,
-                                    'staked_balance': 0,
-                                    'mp_accrued': 0,
-                                    'last_mp_update_time': 0,
-                                    'rewards_accrued': 0,
-                                    'success': False
-                                })
-                            continue
-                    
-                    progress_bar.progress(1.0)
-                    status_text.text("Processing complete!")
-                    
-                    if all_vault_data:
-                        # Create DataFrame with vault data
-                        vault_data_df = pd.DataFrame(all_vault_data)
-                        
-                        # Convert data types and handle Wei values safely
-                        vault_data_df['vault_address'] = vault_data_df['vault_address'].astype('string')
-                        vault_data_df['owner'] = vault_data_df['owner'].astype('string')
-                        
-                        # Handle timestamps safely - convert to datetime
-                        vault_data_df['lock_until'] = vault_data_df['lock_until'].apply(
-                            lambda x: pd.to_datetime(x, unit='s') if x > 0 else pd.NaT
-                        )
-                        vault_data_df['last_mp_update_time'] = vault_data_df['last_mp_update_time'].apply(
-                            lambda x: pd.to_datetime(x, unit='s') if x > 0 else pd.NaT
-                        )
-                        
-                        # Keep Wei values as object type to handle large numbers
-                        vault_data_df['staked_balance_wei'] = vault_data_df['staked_balance'].astype('object')
-                        vault_data_df['mp_accrued_wei'] = vault_data_df['mp_accrued'].astype('object')
-                        vault_data_df['rewards_accrued_wei'] = vault_data_df['rewards_accrued'].astype('object')
-                        
-                        # Convert to ETH using Python's native division to handle large numbers
-                        vault_data_df['staked_balance_eth'] = vault_data_df['staked_balance'].apply(
-                            lambda x: float(x) / 1e18 if x is not None else 0.0
-                        )
-                        vault_data_df['mp_accrued_eth'] = vault_data_df['mp_accrued'].apply(
-                            lambda x: float(x) / 1e18 if x is not None else 0.0
-                        )
-                        vault_data_df['rewards_accrued_eth'] = vault_data_df['rewards_accrued'].apply(
-                            lambda x: float(x) / 1e18 if x is not None else 0.0
-                        )
-                        
-                        # Store in session state
-                        st.session_state.vault_data_df = vault_data_df
-                        
-                        # Clear progress indicators
-                        progress_bar.empty()
-                        status_text.empty()
-                        
-                        st.success(f"✅ Successfully retrieved data for {len(vault_data_df)} vaults!")
-                        
-                    else:
-                        st.error("No vault data could be retrieved")
-                        
-        except Exception as e:
-            st.error(f"Error retrieving vault data: {str(e)}")
-
 # Display Vault Data Analysis
 if 'vault_data_df' in st.session_state and not st.session_state.vault_data_df.empty:
-    st.markdown("---")
     st.subheader("📈 Vault Data Analysis")
     
     vault_data_df = st.session_state.vault_data_df
@@ -456,6 +398,7 @@ if 'vault_data_df' in st.session_state and not st.session_state.vault_data_df.em
         
         # Data table
         st.subheader("🔍 Detailed Vault Data")
+        st.caption("⏰ All timestamps are displayed in UTC timezone")
         
         # Prepare display dataframe
         display_vault_df = successful_vaults[[
@@ -478,8 +421,8 @@ if 'vault_data_df' in st.session_state and not st.session_state.vault_data_df.em
             "staked_balance_eth": st.column_config.NumberColumn("Staked Balance (SNT)", format="%.2f"),
             "mp_accrued_eth": st.column_config.NumberColumn("MP Accrued", format="%.2f"),
             "rewards_accrued_eth": st.column_config.NumberColumn("Karma Rewards", format="%.2f"),
-            "lock_until": st.column_config.DatetimeColumn("Lock Until"),
-            "last_mp_update_time": st.column_config.DatetimeColumn("Last MP Update")
+            "lock_until": st.column_config.DatetimeColumn("Lock Until (UTC)"),
+            "last_mp_update_time": st.column_config.DatetimeColumn("Last MP Update (UTC)")
         }
         
         st.dataframe(
@@ -490,4 +433,4 @@ if 'vault_data_df' in st.session_state and not st.session_state.vault_data_df.em
         )
 
 else:
-    st.info("Click 'Retrieve Data' to discover staking vaults from the blockchain.")
+    st.info("Click 'Retrieve Vault Data' to discover and analyze staking vaults from the blockchain.")
