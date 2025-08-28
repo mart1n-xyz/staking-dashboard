@@ -1,0 +1,147 @@
+[
+  {
+    "type": "function",
+    "name": "getMaxVaultsPerCall",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "maxVaults",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "getVaultData",
+    "inputs": [
+      {
+        "name": "stakeManager",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vaultData",
+        "type": "tuple",
+        "internalType": "struct VaultDataAggregator.AggregatedVaultData",
+        "components": [
+          {
+            "name": "vaultAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lockUntil",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "stakedBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "mpAccrued",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastMPUpdateTime",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "rewardsAccrued",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "success",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getVaultsData",
+    "inputs": [
+      {
+        "name": "stakeManager",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "vaults",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vaultData",
+        "type": "tuple[]",
+        "internalType": "struct VaultDataAggregator.AggregatedVaultData[]",
+        "components": [
+          {
+            "name": "vaultAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lockUntil",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "stakedBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "mpAccrued",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastMPUpdateTime",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "rewardsAccrued",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "success",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  }
+]
