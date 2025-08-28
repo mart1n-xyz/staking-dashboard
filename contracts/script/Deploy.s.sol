@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {VaultDataAggregator} from "../src/VaultDataAggregator.sol";
 
 contract DeployScript is Script {
-    function run() public {
+    function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
         vm.startBroadcast(deployerPrivateKey);
