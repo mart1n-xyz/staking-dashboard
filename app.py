@@ -5,22 +5,22 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+import json
 
 # Load environment variables
 load_dotenv()
 
-# StakeManager ABI (partial - just the VaultRegistered event)
-STAKE_MANAGER_ABI = [
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "vault", "type": "address"},
-            {"indexed": True, "internalType": "address", "name": "owner", "type": "address"}
-        ],
-        "name": "VaultRegistered",
-        "type": "event"
-    }
-]
+# Load ABIs from files
+def load_abi(filename):
+    try:
+        with open(f"abis/{filename}", 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error(f"ABI file {filename} not found")
+        return []
+
+STAKE_MANAGER_ABI = load_abi("stake_manager.json")
+STAKE_VAULT_ABI = load_abi("stake_vault.json")
 
 # Page configuration
 st.set_page_config(
@@ -212,7 +212,7 @@ if 'vault_df' in st.session_state and not st.session_state.vault_df.empty:
         display_df,
         column_config=column_config,
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
     
 else:
