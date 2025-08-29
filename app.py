@@ -380,15 +380,21 @@ if 'vault_data_df' in st.session_state and not st.session_state.vault_data_df.em
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            total_staked = float(successful_vaults['staked_balance_eth'].sum())
+            # Sum in Wei first to preserve precision, then convert to ETH
+            total_staked_wei = successful_vaults['staked_balance'].sum()
+            total_staked = float(total_staked_wei) / 1e18
             st.metric("Total SNT Staked", f"{total_staked:,.2f} SNT")
         
         with col2:
-            total_mp = float(successful_vaults['mp_accrued_eth'].sum())
+            # Sum in Wei first to preserve precision, then convert to ETH
+            total_mp_wei = successful_vaults['mp_accrued'].sum()
+            total_mp = float(total_mp_wei) / 1e18
             st.metric("Total MP Accrued", f"{total_mp:,.2f}")
         
         with col3:
-            total_rewards = float(successful_vaults['rewards_accrued_eth'].sum())
+            # Sum in Wei first to preserve precision, then convert to ETH
+            total_rewards_wei = successful_vaults['rewards_accrued'].sum()
+            total_rewards = float(total_rewards_wei) / 1e18
             st.metric("Total Karma Rewards", f"{total_rewards:,.2f} Karma")
         
         with col4:
