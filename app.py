@@ -112,13 +112,17 @@ contract_address = st.text_input(
     help="Enter the address of the StakeManagerTransparentProxy contract"
 )
 
-# Get RPC endpoint from environment
-rpc_endpoint = os.getenv("RPC_ENDPOINT")
+# Get RPC endpoint from Streamlit secrets (fallback to environment for backward compatibility)
+try:
+    rpc_endpoint = st.secrets["default"]["RPC_ENDPOINT"]
+except (KeyError, FileNotFoundError):
+    # Fallback to environment variable for local development without secrets.toml
+    rpc_endpoint = os.getenv("RPC_ENDPOINT")
 
 # Retrieve data button
 if st.button("🔍 Retrieve Vault Data", type="primary"):
     if not rpc_endpoint:
-        st.error("Please set RPC_ENDPOINT in your .env file")
+        st.error("Please set RPC_ENDPOINT in your .streamlit/secrets.toml file or .env file")
     elif not contract_address:
         st.error("Please provide a contract address")
     else:
