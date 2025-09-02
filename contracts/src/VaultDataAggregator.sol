@@ -14,6 +14,7 @@ interface IStakeManager {
 
     function getVault(address vaultAddress) external view returns (VaultData memory);
     function vaultOwners(address vault) external view returns (address owner);
+    function rewardsBalanceOf(address vaultAddress) external view returns (uint256);
 }
 
 /// @notice Interface for StakeVault contract
@@ -63,7 +64,12 @@ contract VaultDataAggregator {
                 vaultData[i].stakedBalance = smVaultData.stakedBalance;
                 vaultData[i].mpAccrued = smVaultData.mpAccrued;
                 vaultData[i].lastMPUpdateTime = smVaultData.lastMPUpdateTime;
-                vaultData[i].rewardsAccrued = smVaultData.rewardsAccrued;
+            } catch {
+                allCallsSucceeded = false;
+            }
+            
+            try sm.rewardsBalanceOf(vaultAddress) returns (uint256 rewardsBalance) {
+                vaultData[i].rewardsAccrued = rewardsBalance;
             } catch {
                 allCallsSucceeded = false;
             }
