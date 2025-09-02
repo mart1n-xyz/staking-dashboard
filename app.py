@@ -26,7 +26,7 @@ STAKE_VAULT_ABI = load_abi("stake_vault.json")
 VAULT_DATA_AGGREGATOR_ABI = load_abi("vault_data_aggregator.json")
 
 # Contract addresses
-VAULT_DATA_AGGREGATOR_ADDRESS = "0x76e64FD4348962cB590247EC05A09ecbbD75da7F"
+VAULT_DATA_AGGREGATOR_ADDRESS = "0xad7AF86563Ab6055e64f1f42bddEa1b7F3c0C7cA"
 
 # Rate limiting configuration
 MAX_REQUESTS_PER_SECOND = 10
